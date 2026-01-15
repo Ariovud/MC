@@ -1,0 +1,212 @@
+# Zero Trust Implementation Guide for Temporary Access Pass (TAP) in Microsoft Entra ID
+
+**Version:** 1.0  
+**Date:** January 2026  
+**Prepared for:** Chief Information Security Officer (CISO) Review  
+**Purpose:** This document outlines a security-first, Zero Trust-aligned approach to implementing and operating Microsoft Entra ID Temporary Access Pass (TAP). TAP enables secure onboarding, MFA recovery, and emergency access without relying on permanent passwords or insecure delivery methods. The design emphasizes least privilege, short-lived access, explicit verification, assume breach, and continuous monitoring.
+
+## Executive Summary
+
+Temporary Access Pass (TAP) is a time-limited, one-time-use passcode that allows users to sign in and register stronger authentication methods (e.g., phishing-resistant MFA). When implemented with the controls below, TAP significantly reduces risks associated with initial access, MFA resets, and recovery scenarios.
+
+This guide enforces **Zero Trust principles** through:
+- Scoped role assignments and group-based enablement
+- Short-lived, single-use passes
+- Mandatory MFA registration post-TAP
+- Secure issuance and delivery processes
+- Comprehensive auditing and revocation
+
+**Key Benefits**
+- Eliminates reliance on emailed passwords or legacy recovery methods
+- Supports passwordless transition
+- Minimizes attack surface for privileged and standard users
+
+**Prerequisites**
+- Block legacy authentication
+- Enforce phishing-resistant MFA for administrators
+- Use least-privilege roles
+
+Implementation should be phased: pilot with a small group, then expand.
+
+## Phase 0 – Zero Trust & Least Privilege Foundations (Complete First)
+
+Before enabling TAP, establish these baseline controls.
+
+### 0.1 Identity Roles (Least Privilege)
+
+**Recommended Roles**
+
+| Role                              | Purpose                              |
+|-----------------------------------|--------------------------------------|
+| Authentication Policy Administrator | Enable/configure the TAP method      |
+| Privileged Authentication Administrator | Create/revoke TAPs for admins       |
+| Authentication Administrator      | Create/revoke TAPs for standard users|
+| Security Reader                   | Audit TAP usage                      |
+| Privileged Role Administrator     | Manage admin roles                   |
+
+**Best Practices**
+- Assign Authentication Administrator to staff who create TAPs
+- Scope roles using Administrative Units (AUs) where possible
+- **Never** use Global Administrator for routine TAP operations
+- **Never** grant Helpdesk unrestricted tenant-wide access
+
+### 0.2 Block Legacy Authentication
+- Entra ID → Conditional Access
+- Block POP, IMAP, SMTP AUTH, and all legacy protocols  
+  (TAP is incompatible with legacy auth by design)
+
+### 0.3 Enforce MFA for Admins
+- Require MFA on all admin roles
+- Prefer phishing-resistant methods (FIDO2/passkeys)
+
+## Phase 1 – Enable TAP Authentication Method (Controlled Rollout)
+
+### 1.1 Enable TAP (Scoped, Not Global)
+Path: Entra ID → Protection → Authentication methods → Temporary Access Pass
+
+**Configuration**
+
+| Setting              | Value                  |
+|----------------------|------------------------|
+| Enable               | Yes                    |
+| Users                | Selected groups only   |
+| Allow sign-in        | Yes                    |
+| Allow passwordless   | Yes                    |
+
+**Note:** Group-based enablement is mandatory for Zero Trust.
+
+### 1.2 Create Dedicated TAP Target Groups
+
+| Group Name                  | Purpose                          |
+|-----------------------------|----------------------------------|
+| TAP-Onboarding-Users        | New hires / first-time login     |
+| TAP-Recovery-Users          | MFA reset / lost authenticator   |
+| TAP-Privileged-Emergency    | Break-glass (highly restricted)  |
+
+**Do NOT** include “All Users.” Add users temporarily and remove after successful use.
+
+## Phase 2 – TAP Policy Design (Security-First)
+
+### 2.1 Standard Users
+
+| Setting               | Value                     |
+|-----------------------|---------------------------|
+| Usage                 | Single-use only           |
+| Lifetime              | 30–60 minutes             |
+| Start time            | Immediate                 |
+| Sign-in allowed       | Yes                       |
+| MFA registration      | Required                  |
+
+### 2.2 Privileged Users
+
+| Setting               | Value                     |
+|-----------------------|---------------------------|
+| Usage                 | Single-use                |
+| Lifetime              | 15 minutes maximum        |
+| Conditional Access    | Extra restrictions        |
+| Logging               | Mandatory review          |
+
+**Rationale:** Short lifetimes and single-use eliminate replay risk and minimize exposure.
+
+## Phase 3 – Conditional Access Enforcement
+
+### 3.1 Require MFA After TAP
+**Policy Name:** CA – TAP – Force MFA Registration
+
+- **Assignments:** TAP-enabled groups (All cloud apps)
+- **Conditions:** Browser, Mobile, Desktop clients
+- **Exclude:** Emergency break-glass accounts only
+- **Controls:** Require MFA + preferred authentication strength (FIDO2)
+
+### 3.2 Restrict TAP Usage (Recommended)
+Add controls such as:
+- Require compliant or Hybrid Azure AD joined device
+- Require trusted/corporate IP ranges
+- Block risky sign-ins (via Identity Protection)
+
+## Phase 4 – Secure TAP Issuance Process
+
+### 4.1 Approved Scenarios
+- New employee first login
+- Lost phone / MFA reset
+- Authenticator re-registration
+
+**Never** issue for convenience or long-term access.
+
+### 4.2 Secure Delivery Methods
+**Approved**
+- In-person handover
+- Secure ITSM portal
+- Time-limited encrypted message
+
+**Forbidden**
+- Plain email
+- Microsoft Teams chat
+- Shared documents
+
+### 4.3 Mandatory User Instructions
+Users must:
+1. Sign in immediately using the TAP
+2. Register phishing-resistant MFA
+3. Change/set password (if applicable)
+4. Log out and re-test normal sign-in
+
+### 4.4 Operational Workflow Using Dedicated Groups
+1. Determine scenario → Add user temporarily to appropriate group
+2. Create TAP (via user’s Authentication methods)
+3. Securely deliver TAP
+4. User completes registration
+5. Confirm success → Revoke TAP + remove user from group
+
+## Phase 5 – Audit, Monitoring & Revocation
+
+### 5.1 Monitoring
+Monitor in Entra ID logs:
+- AuditLogs: TAP created
+- SignInLogs: TAP used
+
+Set alerts for:
+- TAP issuance outside business hours
+- Multiple TAPs for same user
+- TAP created but not used
+
+### 5.2 Revocation
+- Revoke immediately after MFA registration
+- Weekly review of active TAPs
+- Automate cleanup where possible (e.g., Lifecycle Workflows)
+
+## Phase 6 – Governance & Compliance
+
+### 6.1 Required Written Policy Elements
+Document must cover:
+- TAP purpose and approved scenarios
+- Authorized issuers and roles
+- Maximum lifetimes
+- Approved delivery methods
+- Audit and revocation requirements
+
+### 6.2 Review Cadence
+Quarterly review:
+- TAP usage volume
+- Failed attempts
+- Role assignments
+- Conditional Access effectiveness
+
+## Phase 7 – Next-Level Zero Trust Maturity
+Once stable:
+- Transition to full passwordless (Microsoft Authenticator, FIDO2/passkeys)
+- Restrict TAP to onboarding and true break-glass only
+- Eliminate passwords where feasible
+
+## Zero Trust Alignment Summary
+
+| Principle               | How TAP Aligns in This Design                  | Maturity |
+|-------------------------|------------------------------------------------|----------|
+| Least Privilege         | Scoped roles, group-based enablement, temporary membership | High    |
+| Verify Explicitly       | CA policies force MFA registration post-TAP    | High    |
+| Assume Breach           | Short-lived, single-use, immediate revocation  | High    |
+| Continuous Monitoring   | Logs, alerts, quarterly reviews                | High    |
+
+This implementation aligns with Microsoft Secure Future Initiative guidance (2025–2026) and industry best practices. Recommend piloting with onboarding scenarios first, followed by close monitoring of logs.
+
+For questions or assistance with scripting/automation, contact the Identity Security team.
