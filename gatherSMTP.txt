@@ -1,28 +1,20 @@
-
 # Connect-MgGraph -Scopes "AuditLog.Read.All", "Directory.Read.All"
 
-# Define dates in UTC with full precision
 $startDate = (Get-Date).AddDays(-30).ToUniversalTime()
-$startFilter = $startDate.ToString("yyyy-MM-ddTHH:mm:ss.000Z")
+$startFilter = $startDate.ToString("yyyy-MM-ddTHH:mm:ssZ")
 
 $endDate = (Get-Date).ToUniversalTime()
-$endFilter = $endDate.ToString("yyyy-MM-ddTHH:mm:ss.000Z")
+$endFilter = $endDate.ToString("yyyy-MM-ddTHH:mm:ssZ")
 
-# Build filter string (DateTime values MUST be quoted for OData)
-$filter = "createdDateTime ge '$startFilter' and createdDateTime le '$endFilter' and clientAppUsed eq 'Authenticated SMTP' and status/errorCode eq 0"
+$filter = "createdDateTime ge $startFilter and createdDateTime le $endFilter and clientAppUsed eq 'Authenticated SMTP' and status/errorCode eq 0"
 
 Write-Host "Using filter: $filter" -ForegroundColor Cyan
 
 try {
-    $signIns = Get-MgAuditLogSignIn `
-        -Filter $filter `
-        -All `
-        -ConsistencyLevel eventual `
-        -CountVariable signInCount `
-        -ErrorAction Stop
+    $signIns = Get-MgAuditLogSignIn -Filter $filter -All -ErrorAction Stop
 
     if ($signIns.Count -eq 0) {
-        Write-Host "No legacy SMTP (Authenticated SMTP) sign-ins found in the date range." -ForegroundColor Yellow
+        Write-Host "No legacy SMTP sign-ins found in the date range." -ForegroundColor Yellow
     }
     else {
         Write-Host "Found $($signIns.Count) sign-ins." -ForegroundColor Green
@@ -30,28 +22,18 @@ try {
         $results = $signIns |
             Group-Object UserPrincipalName |
             Select-Object `
-                @{Name = 'UserPrincipalName'; Expression = { $_.Name } },
-                @{Name = 'SignInCount'; Expression = { $_.Count } },
-                @{Name = 'UniqueIPs'; Expression = {
-                    ($_.Group.IpAddress | Where-Object { $_ } | Sort-Object -Unique) -join ', '
-                }},
-                @{Name = 'LastSignIn'; Expression = {
-                    ($_.Group.CreatedDateTime | Measure-Object -Maximum).Maximum
-                }},
-                @{Name = 'AppDisplayName'; Expression = {
-                    ($_.Group.AppDisplayName | Where-Object { $_ } | Select-Object -Unique) -join ', '
-                }}
+                @{Name='UserPrincipalName'; Expression={$_.Name}},
+                @{Name='SignInCount'; Expression={$_.Count}},
+                @{Name='UniqueIPs'; Expression={ ($_.Group.IpAddress | Where-Object { $_ } | Sort-Object -Unique) -join ', ' }},
+                @{Name='LastSignIn'; Expression={ ($_.Group.CreatedDateTime | Measure-Object -Maximum).Maximum }},
+                @{Name='AppDisplayName'; Expression={ ($_.Group.AppDisplayName | Where-Object { $_ } | Select-Object -Unique) -join ', ' }}
 
         $results | Format-Table -AutoSize
 
-        $results | Export-Csv `
-            -Path "C:\Legacy_SMTP_Users_ExchangeOnline.csv" `
-            -NoTypeInformation `
-            -Encoding UTF8
+        $results | Export-Csv -Path "C:\Legacy_SMTP_Users_ExchangeOnline.csv" -NoTypeInformation -Encoding UTF8
     }
 }
 catch {
     Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
-    Write-Host "Full error details:" -ForegroundColor Red
     $_.Exception | Format-List -Force
 }
