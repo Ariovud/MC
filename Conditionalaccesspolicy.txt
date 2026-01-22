@@ -1,0 +1,76 @@
+# -----------------------------
+# Configuration
+# -----------------------------
+$BreakGlassUPN = "BG-GlobalAdmin1@yourdomain.com"   # Replace with your break-glass UPN
+$OutputCSV = "BreakGlass_CA_Report.csv"
+
+# -----------------------------
+# Connect to Microsoft Graph
+# -----------------------------
+Install-Module Microsoft.Graph -Scope CurrentUser -Force
+Import-Module Microsoft.Graph
+Connect-MgGraph -Scopes "Policy.Read.All","Directory.Read.All"
+
+# -----------------------------
+# Get all Conditional Access policies
+# -----------------------------
+$Policies = Get-MgIdentityConditionalAccessPolicy -All
+
+# -----------------------------
+# Prepare report array
+# -----------------------------
+$Report = @()
+
+# -----------------------------
+# Helper function to check if user is in group (dynamic or static)
+# -----------------------------
+function IsUserInGroup($UserUPN, $GroupId) {
+    try {
+        $Members = Get-MgGroupMember -GroupId $GroupId -All | ForEach-Object { $_.UserPrincipalName }
+        return $Members -contains $UserUPN
+    } catch {
+        Write-Warning "Could not resolve group $GroupId. It may be a dynamic group or unsupported type."
+        return $false
+    }
+}
+
+# -----------------------------
+# Loop through each policy
+# -----------------------------
+foreach ($policy in $Policies) {
+    $DirectExcluded = $false
+    $GroupExcluded = $false
+
+    # Check direct user exclusions
+    if ($policy.Conditions.Users.ExcludeUsers -contains $BreakGlassUPN) {
+        $DirectExcluded = $true
+    }
+
+    # Check group exclusions
+    if ($policy.Conditions.Users.ExcludeGroups -ne $null) {
+        foreach ($groupId in $policy.Conditions.Users.ExcludeGroups) {
+            if (IsUserInGroup -UserUPN $BreakGlassUPN -GroupId $groupId) {
+                $GroupExcluded = $true
+                break
+            }
+        }
+    }
+
+    # Determine overall exclusion
+    $IsExcluded = $DirectExcluded -or $GroupExcluded
+
+    # Add to report
+    $Report += [PSCustomObject]@{
+        PolicyName       = $policy.DisplayName
+        PolicyId         = $policy.Id
+        DirectExcluded   = $DirectExcluded
+        GroupExcluded    = $GroupExcluded
+        IsExcluded       = $IsExcluded
+    }
+}
+
+# -----------------------------
+# Export report
+# -----------------------------
+$Report | Export-Csv -Path $OutputCSV -NoTypeInformation
+Write-Host "Break-glass Conditional Access report saved to $OutputCSV"
