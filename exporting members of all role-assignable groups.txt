@@ -1,0 +1,82 @@
+# Connect to Microsoft Graph
+Connect-MgGraph -Scopes "RoleManagement.Read.Directory","Group.Read.All","Directory.Read.All"
+
+# CSV output path
+$CsvPath = "PrivilegedGroupMembers.csv"
+
+# Initialize CSV with headers
+"GroupName,GroupId,GroupDescription,MemberId,MemberType,UserPrincipalName" | Out-File -FilePath $CsvPath -Encoding UTF8
+
+# Get all role-assignable groups
+$PrivGroups = Get-MgGroup -Filter "isAssignableToRole eq true" -All -ConsistencyLevel eventual -CountVariable groupCount
+
+Write-Host "Found $groupCount role-assignable groups. Processing..."
+
+foreach ($Group in $PrivGroups) {
+    Write-Host "Processing group: $($Group.DisplayName)" -ForegroundColor Cyan
+
+    try {
+        $Members = Get-MgGroupMember -GroupId $Group.Id -All
+    }
+    catch {
+        Write-Warning "Failed to get members for group $($Group.DisplayName): $_"
+        continue
+    }
+
+    # Separate members
+    $UserMembers   = [System.Collections.Generic.List[Object]]::new()
+    $OtherMembers  = [System.Collections.Generic.List[Object]]::new()
+
+    foreach ($Member in $Members) {
+        $type = $Member.AdditionalProperties['@odata.type']
+        if ($type -eq "#microsoft.graph.user") {
+            $UserMembers.Add($Member)
+        } else {
+            $OtherMembers.Add($Member)
+        }
+    }
+
+    # Process users in batches
+    if ($UserMembers.Count -gt 0) {
+        $BatchSize = 40
+        for ($i = 0; $i -lt $UserMembers.Count; $i += $BatchSize) {
+            $batchEnd = [math]::Min($i + $BatchSize - 1, $UserMembers.Count - 1)
+            $Batch = $UserMembers[$i..$batchEnd]
+            $UserIds = $Batch | Select-Object -ExpandProperty Id
+
+            try {
+                $Users = Get-MgUser -UserId $UserIds
+                foreach ($Member in $Batch) {
+                    $User = $Users | Where-Object { $_.Id -eq $Member.Id }
+                    $UPN = $User ? $User.UserPrincipalName : "NotFound"
+
+                    [PSCustomObject]@{
+                        GroupName         = $Group.DisplayName
+                        GroupId           = $Group.Id
+                        GroupDescription  = $Group.Description
+                        MemberId          = $Member.Id
+                        MemberType        = "#microsoft.graph.user"
+                        UserPrincipalName = $UPN
+                    } | Export-Csv -Path $CsvPath -Append -NoTypeInformation -Encoding UTF8
+                }
+            }
+            catch {
+                Write-Warning "Failed to fetch user batch in $($Group.DisplayName): $_"
+            }
+        }
+    }
+
+    # Non-user members
+    foreach ($Member in $OtherMembers) {
+        [PSCustomObject]@{
+            GroupName         = $Group.DisplayName
+            GroupId           = $Group.Id
+            GroupDescription  = $Group.Description
+            MemberId          = $Member.Id
+            MemberType        = $Member.AdditionalProperties['@odata.type']
+            UserPrincipalName = ""
+        } | Export-Csv -Path $CsvPath -Append -NoTypeInformation -Encoding UTF8
+    }
+}
+
+Write-Host "Privileged group member export complete: $CsvPath" -ForegroundColor Green

@@ -1,0 +1,27 @@
+
+Connect-MgGraph -Scopes "RoleManagement.Read.Directory","Group.Read.All","Directory.Read.All"
+
+$PrivGroups = Get-MgGroup -Filter "isAssignableToRole eq true" -All
+
+$Results = foreach ($Group in $PrivGroups) {
+    $Members = Get-MgGroupMember -GroupId $Group.Id -All
+
+    foreach ($Member in $Members) {
+        [PSCustomObject]@{
+            GroupName   = $Group.DisplayName
+            GroupId     = $Group.Id
+            MemberId    = $Member.Id
+            MemberType  = $Member.AdditionalProperties.'@odata.type'
+        }
+    }
+}
+
+$Results
+
+$Results | Where-Object {$_.MemberType -eq "#microsoft.graph.user"} |
+ForEach-Object {
+    $User = Get-MgUser -UserId $_.MemberId
+    $_ | Add-Member -NotePropertyName UserPrincipalName -NotePropertyValue $User.UserPrincipalName -PassThru
+}
+
+$Results | Export-Csv PrivilegedGroupMembers.csv -NoTypeInformation
