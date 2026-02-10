@@ -1,0 +1,20 @@
+Connect-MgGraph -Scopes "AuditLog.Read.All"
+
+$startDate = (Get-Date).AddMonths(-1).ToString("yyyy-MM-ddTHH:mm:ssZ")
+
+$signIns = Get-MgAuditLogSignIn `
+    -Filter "createdDateTime ge $startDate and status/errorCode eq 0" `
+    -All
+
+$entraSuccess = $signIns | Where-Object {
+    $_.ResourceDisplayName -eq "Microsoft Entra ID"
+}
+
+$entraSuccess | Select-Object `
+    CreatedDateTime,
+    UserDisplayName,
+    UserPrincipalName,
+    IpAddress,
+    AppDisplayName,
+    ResourceDisplayName |
+Export-Csv "EntraID_Portal_Success_LastMonth.csv" -NoTypeInformation
